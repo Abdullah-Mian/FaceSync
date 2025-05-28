@@ -1,0 +1,11 @@
+opencv-python
+torch
+torchvision
+tensorflow
+mtcnn
+matplotlib
+tqdm
+kaggle
+mxnet
+scikit-learn
+pillow
