@@ -6,51 +6,10 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import numpy as np
 from torch.utils.data import DataLoader
-from facenet_pytorch import InceptionResnetV1
+from facenet_pytorch import InceptionResnetV1  # Only used to recreate same architecture
 import matplotlib.pyplot as plt
 import pickle
 from tqdm import tqdm
-
-# Import preprocessing module - modified for better compatibility with Colab
-# The dataset structure is already preset in the environment when this script runs
-# try:
-#     # First try direct import (when run in same directory)
-#     from PreProcessing_dataset import FaceDataset, process_casia_webface
-#     print("✓ Successfully imported preprocessing modules")
-# except ImportError:
-#     try:
-#         # For Colab environment where modules might be in different locations
-#         import sys
-#         # Add the directory containing PreProcessing_dataset.py to Python's path
-#         module_path = os.path.abspath(os.path.dirname(__file__))
-#         if module_path not in sys.path:
-#             sys.path.append(module_path)
-        
-#         # Now try importing again
-#         from PreProcessing_dataset import FaceDataset, process_casia_webface
-#         print("✓ Successfully imported preprocessing modules via path adjustment")
-#     except ImportError:
-#         # Last resort - try to load dynamically if files are in same directory
-#         import importlib.util
-        
-#         # Path to the preprocessing module
-#         preprocessing_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
-#                                          "PreProcessing_dataset.py")
-        
-#         if os.path.exists(preprocessing_path):
-#             # Load module dynamically
-#             spec = importlib.util.spec_from_file_location("PreProcessing_dataset", preprocessing_path)
-#             preprocessing = importlib.util.module_from_spec(spec)
-#             spec.loader.exec_module(preprocessing)
-            
-#             # Get the needed components
-#             FaceDataset = preprocessing.FaceDataset
-#             process_casia_webface = preprocessing.process_casia_webface
-#             print("✓ Successfully imported preprocessing modules dynamically")
-#         else:
-#             print("Error: PreProcessing_dataset.py must be in the same directory!")
-#             print("Please make sure PreProcessing_dataset.py is available before running this script.")
-#             raise ImportError("PreProcessing_dataset.py not found")
 
 # Set up GPU
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -59,21 +18,25 @@ print(f"Using device: {device}")
 def continue_training(model_path='/content/models/best_face_model.pth', additional_epochs=5, lr=0.00003):
     """
     Continue training a previously trained model for additional epochs.
+    This picks up exactly where the previous training left off.
     
     Parameters:
-    - model_path: Path to the saved model checkpoint
+    - model_path: Path to the saved model checkpoint from previous training
     - additional_epochs: Number of additional epochs to train
     - lr: Learning rate for continued training (should be lower than initial training)
     """
-    print("-" * 50)
-    print(f"CONTINUING TRAINING FOR {additional_epochs} MORE EPOCHS")
-    print("-" * 50)
+    print("-" * 80)
+    print(f"CONTINUING TRAINING FROM EXISTING MODEL: {model_path}")
+    print(f"ADDING {additional_epochs} MORE EPOCHS TO PREVIOUS TRAINING")
+    print("-" * 80)
     
     # Verify model exists
     if not os.path.exists(model_path):
-        print(f"ERROR: Model not found at {model_path}")
+        print(f"❌ ERROR: Previous model not found at {model_path}")
         print("Please ensure you have trained a model first using train_model.py")
         return False
+    
+    from PreProcessing_dataset import FaceDataset, process_casia_webface
     
     # Load previous training history if it exists
     history_path = os.path.join(os.path.dirname(model_path), 'training_history.pkl')
@@ -85,7 +48,7 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
             prev_val_losses = history['val_losses']
             prev_train_accs = history['train_accs']
             prev_val_accs = history['val_accs']
-            print(f"✓ Loaded previous training history: {len(prev_train_losses)} epochs")
+            print(f"✓ Loaded previous training history: {len(prev_train_losses)} epochs already completed")
         except Exception as e:
             print(f"⚠️ Could not load training history: {e}")
             prev_train_losses, prev_val_losses = [], []
@@ -134,7 +97,7 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     num_classes = len(label_map)
     print(f"✓ Training with {num_classes} identities")
     
-    # Split into train and validation - use the same seed as initial training
+    # Split into train and validation - IMPORTANT: use the same seed as initial training
     torch.manual_seed(42)  # Important: use same seed to keep validation set consistent
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
@@ -144,58 +107,69 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
 
-    # Load the model from checkpoint
-    print(f"\n🔄 Step 4: Loading model from {model_path}")
+    # Load the EXACT model from previous training checkpoint
+    print(f"\n🔄 Step 4: Loading previously trained model from {model_path}")
     try:
         checkpoint = torch.load(model_path, map_location=device)
         
-        # Check if the checkpoint contains a model with a classifier
-        if 'num_classes' in checkpoint:
+        # Get information about the model from checkpoint
+        if 'num_classes' not in checkpoint:
+            print("⚠️ Warning: Checkpoint doesn't contain num_classes information")
+            saved_num_classes = num_classes
+        else:
             saved_num_classes = checkpoint['num_classes']
             print(f"✓ Found model with {saved_num_classes} classes")
-        else:
-            # Default to the number of classes in the current dataset
-            saved_num_classes = num_classes
-            print("⚠️ Could not determine number of classes from checkpoint.")
+            
+        # Check if the dataset has changed
+        if saved_num_classes != num_classes:
+            print(f"⚠️ Warning: Number of classes in dataset ({num_classes}) differs from model ({saved_num_classes})")
+            print("⚠️ This may cause issues if class IDs have changed")
         
-        # Initialize the model with the same architecture
+        # Initialize model with the SAME architecture as before
         model = InceptionResnetV1(
-            pretrained='vggface2',
-            classify=True,
+            pretrained='vggface2',  # This is just to initialize the architecture
+            classify=True,          # We need the classification layer
             num_classes=saved_num_classes
         ).to(device)
         
-        # Load weights
+        # Load EXACT weights from previous training (this is the critical part)
+        print("✓ Loading weights from previous training run")
         model.load_state_dict(checkpoint['model_state_dict'])
-        print(f"✓ Model loaded successfully. Previous training epoch: {checkpoint.get('epoch', 'unknown')}")
         
-        # If number of classes is different, adjust the classifier
-        if saved_num_classes != num_classes:
-            print(f"⚠️ Number of classes changed from {saved_num_classes} to {num_classes}")
-            print("⚠️ Rebuilding classifier layer to match new dataset...")
-            # Replace the classifier layer with a new one
-            model.classifier = nn.Linear(512, num_classes).to(device)
+        # This confirms we're using the previously trained model, not the pretrained one
+        print("✓ Successfully loaded previously trained model weights")
+        print(f"✓ Previous training reached epoch: {checkpoint.get('epoch', 'unknown')}")
+        
+        # Check if the model is in eval mode and set to train
+        if not model.training:
+            print("✓ Setting model to training mode")
+            model.train()
+    
     except Exception as e:
         print(f"❌ Error loading model: {e}")
-        print("Falling back to a new model...")
-        model = InceptionResnetV1(
-            pretrained='vggface2',
-            classify=True,
-            num_classes=num_classes
-        ).to(device)
+        print("Cannot continue training without a valid model. Exiting.")
+        return False
     
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
-    # If optimizer state was saved, load it (optional)
+    # If optimizer state was saved, load it (this is crucial for proper continuation)
     if 'optimizer_state_dict' in checkpoint:
         try:
+            print("✓ Loading optimizer state from previous training")
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            print("✓ Optimizer state loaded successfully")
+            # Update the learning rate for continued training
+            for param_group in optimizer.param_groups:
+                old_lr = param_group['lr']
+                param_group['lr'] = lr
+                print(f"✓ Updated learning rate: {old_lr} → {lr}")
         except Exception as e:
             print(f"⚠️ Error loading optimizer state: {e}. Creating new optimizer.")
             optimizer = optim.Adam(model.parameters(), lr=lr)
+    else:
+        print("⚠️ No optimizer state found in checkpoint. Creating new optimizer.")
+        optimizer = optim.Adam(model.parameters(), lr=lr)
     
     # Use a learning rate scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -207,21 +181,24 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     )
 
     # Initialize tracking variables
-    best_acc = checkpoint.get('accuracy', 0.0)  # Get previous best accuracy if available
+    best_acc = checkpoint.get('accuracy', 0.0)  # Get previous best accuracy
     print(f"🏆 Previous best accuracy: {best_acc:.4f}")
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
 
-    # Training loop
-    print(f"\n🚀 Step 5: Continuing training for {additional_epochs} more epochs")
-    for epoch in range(additional_epochs):
-        print(f'\nEpoch {epoch+1}/{additional_epochs}')
+    # Continue the training loop from previous epoch
+    start_epoch = checkpoint.get('epoch', 0) + 1
+    end_epoch = start_epoch + additional_epochs
+    print(f"\n🚀 Step 5: Continuing training from epoch {start_epoch} to {end_epoch-1}")
+    
+    for epoch in range(start_epoch, end_epoch):
+        print(f'\nEpoch {epoch} (Overall: {epoch})')
         
         # Training phase
         model.train()
         running_loss = 0.0
         running_corrects = 0
-        for inputs, labels in tqdm(train_loader, desc=f"Training epoch {epoch+1}/{additional_epochs}"):
+        for inputs, labels in tqdm(train_loader, desc=f"Training epoch {epoch}"):
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
@@ -243,7 +220,7 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
         running_loss = 0.0
         running_corrects = 0
         with torch.no_grad():
-            for inputs, labels in tqdm(val_loader, desc=f"Validating epoch {epoch+1}/{additional_epochs}"):
+            for inputs, labels in tqdm(val_loader, desc=f"Validating epoch {epoch}"):
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
@@ -263,26 +240,26 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
         # Save best model (only if it improves)
         if val_epoch_acc > best_acc:
             best_acc = val_epoch_acc
-            # Save as continued model
+            # Save with the latest epoch
             torch.save({
-                'epoch': checkpoint.get('epoch', 0) + epoch + 1,
+                'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'accuracy': val_epoch_acc,
-                'num_classes': num_classes
+                'num_classes': saved_num_classes
             }, os.path.join(output_dir, 'best_face_model.pth'))
             print(f"🏆 New best model saved with accuracy: {best_acc:.4f}")
         else:
             print(f"📉 No improvement. Current best: {best_acc:.4f}")
 
-    # Save final model and label map
+    # Save final model
     print("\n💾 Step 6: Saving final model and plotting results")
     torch.save({
-        'epoch': checkpoint.get('epoch', 0) + additional_epochs,
+        'epoch': end_epoch - 1,  # Last epoch completed
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'accuracy': best_acc,
-        'num_classes': num_classes
+        'num_classes': saved_num_classes
     }, os.path.join(output_dir, 'final_face_model.pth'))
 
     # Combine previous and current training history
@@ -300,6 +277,8 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     }
     with open(history_path, 'wb') as f:
         pickle.dump(history, f)
+    
+    print(f"✓ Saved training history covering {len(combined_train_losses)} total epochs")
 
     # Plot full training history
     plt.figure(figsize=(15, 5))
@@ -333,7 +312,7 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     plt.plot(val_losses, label='Val Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title('Recent Training Loss (Continued)')
+    plt.title(f'Recent Training Loss (Epochs {start_epoch}-{end_epoch-1})')
     plt.legend()
     
     plt.subplot(1, 2, 2)
@@ -341,7 +320,7 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     plt.plot(val_accs, label='Val Acc')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')
-    plt.title('Recent Training Accuracy (Continued)')
+    plt.title(f'Recent Training Accuracy (Epochs {start_epoch}-{end_epoch-1})')
     plt.legend()
     
     plt.tight_layout()
