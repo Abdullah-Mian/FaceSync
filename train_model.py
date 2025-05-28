@@ -11,9 +11,6 @@ import matplotlib.pyplot as plt
 import pickle
 from tqdm import tqdm
 
-# Import the preprocessing module
-# from PreProcessing_dataset import process_casia_webface, FaceDataset
-
 # Set up GPU
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
@@ -26,19 +23,13 @@ def train_model():
     data_path = "/content/datasets/casia-webface"
     output_dir = "/content/models"
     batch_size = 16  # Adjusted for GPU memory
-    epochs = 10
+    epochs = 1
     lr = 0.0001
     workers = 2  # Number of data loading workers
 
-    # Process dataset if needed
-    print("Step 1: Processing dataset")
-    processed_path = process_casia_webface(data_path)
-    if not processed_path:
-        print("Failed to process dataset. Exiting.")
-        return
 
     # Data transforms
-    print("Step 2: Setting up data transformations")
+    print("Step 1: Setting up data transformations")
     data_transforms = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.Resize((160, 160)),
@@ -47,7 +38,7 @@ def train_model():
     ])
 
     # Create dataset and dataloaders
-    print("Step 3: Creating datasets and dataloaders")
+    print("Step 2: Creating datasets and dataloaders")
     dataset = FaceDataset(processed_path, data_transforms)
     if len(dataset) == 0:
         print("Error: No valid images found!")
@@ -61,7 +52,7 @@ def train_model():
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers)
 
     # Initialize model
-    print("Step 4: Setting up the model")
+    print("Step 3: Setting up the model")
     num_classes = len(dataset.label_map)
     print(f"Training with {num_classes} identities")
     model = InceptionResnetV1(pretrained='vggface2', classify=True, num_classes=num_classes).to(device)
@@ -77,7 +68,7 @@ def train_model():
     os.makedirs(output_dir, exist_ok=True)
 
     # Training loop
-    print("Step 5: Starting training")
+    print("Step 4: Starting training")
     for epoch in range(epochs):
         print(f'Epoch {epoch+1}/{epochs}')
 
@@ -135,7 +126,7 @@ def train_model():
             print(f"Saved best model with accuracy: {best_acc:.4f}")
 
     # Save final model and label map
-    print("Step 6: Saving final model and plotting results")
+    print("Step 5: Saving final model and plotting results")
     torch.save({
         'epoch': epochs,
         'model_state_dict': model.state_dict(),

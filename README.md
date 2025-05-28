@@ -2,7 +2,7 @@
 
 FaceSync is a comprehensive face recognition system built with PyTorch that allows you to train your own face recognition model from scratch and use it for face verification and authentication. The system leverages deep learning techniques and provides both Google Colab and local execution environments.
 
-![FaceSync](https://img.shields.io/badge/FaceSync-Face%20Recognition-blue)
+![FaceSync Logo](https://img.shields.io/badge/FaceSync-Face%20Recognition-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.9%2B-orange)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.5%2B-green)
 
@@ -12,7 +12,8 @@ FaceSync leverages the following components:
 1. **Dataset Download**: Automated download of face recognition datasets
 2. **Preprocessing**: Extracting and preparing face images for training
 3. **Model Training**: Fine-tuning a deep neural network on your dataset
-4. **Face Recognition**: Real-time face verification and authentication
+4. **Training Extension**: Continuing training of existing models for better performance
+5. **Face Recognition**: Real-time face verification and authentication
 
 ## 🔍 Requirements
 
@@ -29,11 +30,12 @@ Follow these steps to run the entire FaceSync system in Google Colab:
 ### Step 1: Upload the Scripts to Google Colab
 
 Create a new Colab notebook and upload all Python files to the notebook environment:
-- download_dataset.py
-- PreProcessing_dataset.py
-- train_model.py
-- faceid_app.py
-- kaggle.json (for dataset download)
+- `download_dataset.py`
+- `PreProcessing_dataset.py`
+- `train_model.py`
+- `continue_training.py` (optional, for extending training)
+- `faceid_app.py`
+- `kaggle.json` (for dataset download)
 
 ### Step 2: Set Up Cells for Each Component
 
@@ -50,21 +52,13 @@ Create a new Colab notebook and upload all Python files to the notebook environm
 from google.colab import files
 uploaded = files.upload()  # Upload your kaggle.json file here
 
-# Load download_dataset.py and execute it
-%%writefile download_dataset.py
-# [Copy the entire content of download_dataset.py here]
-
-# Run the dataset downloader
+# Execute the dataset downloader
 !python download_dataset.py --dataset casia-webface
 ```
 
 #### Cell 3: Preprocess the Dataset
 
 ```python
-# Load PreProcessing_dataset.py and execute it
-%%writefile PreProcessing_dataset.py
-# [Copy the entire content of PreProcessing_dataset.py here]
-
 # Import and run the preprocessing
 from PreProcessing_dataset import process_casia_webface
 processed_path = process_casia_webface('/content/datasets/casia-webface')
@@ -74,24 +68,23 @@ print(f"Dataset preprocessed at: {processed_path}")
 #### Cell 4: Train the Model
 
 ```python
-# Load train_model.py and execute it
-%%writefile train_model.py
-# [Copy the entire content of train_model.py here]
-
 # Import the preprocessing module to make it available for training
 from PreProcessing_dataset import FaceDataset, process_casia_webface
 
-# Run the training process
+# Run the training process (initial training)
 !python train_model.py
 ```
 
-#### Cell 5: Run Face Recognition Application
+#### Cell 5 (Optional): Continue Training to Improve Model
 
 ```python
-# Load faceid_app.py and execute it
-%%writefile faceid_app.py
-# [Copy the entire content of faceid_app.py here]
+# After initial training completes, you can continue training for more epochs
+!python continue_training.py --epochs 5 --lr 0.00003
+```
 
+#### Cell 6: Run Face Recognition Application
+
+```python
 # Run the Face ID application in Colab mode
 !python faceid_app.py
 ```
@@ -122,7 +115,6 @@ python download_dataset.py --dataset casia-webface
 
 Options:
 - `--dataset`: Choose from `casia-webface`, `vggface2`, or `lfw`
-- `--output_dir`: Directory to save the downloaded dataset
 
 ### 2. Dataset Preprocessing (`PreProcessing_dataset.py`)
 
@@ -143,7 +135,7 @@ This script trains the face recognition model on the preprocessed dataset:
 
 ```python
 # Example usage
-python train_model.py --data_path /content/datasets/processed_casia --epochs 10
+python train_model.py
 ```
 
 Key features:
@@ -152,7 +144,23 @@ Key features:
 - Saves checkpoints during training
 - Generates training history plots
 
-### 4. Face Recognition Application (`faceid_app.py`)
+### 4. Training Extension (`continue_training.py`)
+
+This script continues training a previously trained model for additional epochs:
+
+```python
+# Example usage
+python continue_training.py --model /content/models/best_face_model.pth --epochs 5
+```
+
+Key features:
+- Loads a previously trained model and continues training
+- Uses a lower learning rate for fine-tuning
+- Applies additional data augmentation to prevent overfitting
+- Maintains full training history across multiple training sessions
+- Visualizes progress with comprehensive plots
+
+### 5. Face Recognition Application (`faceid_app.py`)
 
 This script provides a user interface for face registration and verification:
 
@@ -172,6 +180,7 @@ Features:
 You can customize various aspects of the system:
 - Change the dataset by using a different dataset option
 - Adjust training hyperparameters in train_model.py
+- Continue training for more epochs with continue_training.py
 - Modify the verification threshold in faceid_app.py
 - Train on your own dataset by organizing it in the required format
 
@@ -182,10 +191,18 @@ Common issues and solutions:
 - **CUDA out of memory**: Reduce batch size in train_model.py
 - **Face detection failures**: Ensure proper lighting and face positioning
 - **Model loading errors**: Make sure the model files are in the correct directory
+- **Training errors**: Try continuing training with a lower learning rate
 
 ## 🔗 Model Architecture
 
-FaceSync uses a neural network architecture based on the Inception-ResNet design, but with custom modifications for improved face recognition performance. The model is trained using triplet loss to ensure that faces of the same person are closer in embedding space than faces of different people.
+FaceSync uses a neural network architecture based on the Inception-ResNet design for face recognition. The model is trained to generate embeddings that place faces of the same person close together in the embedding space, while maintaining distance between different identities.
+
+## 📈 Training Strategy
+
+For optimal results, we recommend:
+1. Initial training: 5-10 epochs with learning rate 0.0001
+2. Continued training: 5-10 additional epochs with learning rate 0.00003
+3. Fine-tuning: If needed, 3-5 more epochs with learning rate 0.00001
 
 ## 📜 License
 
