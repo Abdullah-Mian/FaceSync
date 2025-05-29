@@ -1,6 +1,7 @@
 # Datasets directory 
 datasets/
 models/
+faces/
 # Kaggle credentials
 kaggle.json
 
