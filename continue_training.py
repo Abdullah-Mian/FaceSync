@@ -1,3 +1,8 @@
+# Configuration - adjust as needed
+ADDITIONAL_EPOCHS = 1  # Number of additional epochs to train
+MODEL_PATH = '/content/models/final_face_model.pth'  # Path to the previously trained model
+DATASET_PATH = '/content/datasets/processed_casia'  # Path to the processed dataset
+
 # Import necessary libraries
 import os
 import torch
@@ -10,12 +15,128 @@ from facenet_pytorch import InceptionResnetV1  # Only used to recreate same arch
 import matplotlib.pyplot as plt
 import pickle
 from tqdm import tqdm
+import sys
+import importlib.util
 
 # Set up GPU
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
-def continue_training(model_path='/content/models/best_face_model.pth', additional_epochs=5, lr=0.00003):
+# Handle PreProcessing_dataset.py import issues
+def import_preprocessing():
+    """
+    Import the preprocessing module dynamically to handle cases when running
+    directly after dataset download and preprocessing
+    """
+    # First try: Direct import if the module is in the path
+    try:
+        # Try direct import
+        from PreProcessing_dataset import FaceDataset, process_casia_webface
+        print("✓ Successfully imported preprocessing modules")
+        return FaceDataset, process_casia_webface
+    except ImportError:
+        print("Could not directly import PreProcessing_dataset. Trying alternative methods...")
+
+    # Second try: Execute from current directory
+    preprocessing_path = os.path.join(os.getcwd(), "PreProcessing_dataset.py")
+    if os.path.exists(preprocessing_path):
+        print(f"Found preprocessing script at: {preprocessing_path}")
+        # Execute the preprocessing script directly
+        with open(preprocessing_path, 'r') as f:
+            preprocessing_code = f.read()
+        
+        # Create namespace for execution
+        preprocessing_namespace = {'__file__': preprocessing_path}
+        exec(preprocessing_code, preprocessing_namespace)
+        
+        # Extract the needed classes and functions
+        FaceDataset = preprocessing_namespace.get('FaceDataset')
+        process_casia_webface = preprocessing_namespace.get('process_casia_webface')
+        
+        if FaceDataset and process_casia_webface:
+            print("✓ Successfully imported preprocessing modules from file")
+            return FaceDataset, process_casia_webface
+
+    # Third try: Define the necessary classes and functions directly here
+    print("⚠️ Implementing preprocessing functions directly")
+    
+    # Include minimal versions of the preprocessing functions
+    class FaceDataset(torch.utils.data.Dataset):
+        def __init__(self, data_dir, transform=None):
+            self.data_dir = data_dir
+            self.transform = transform
+            self.image_paths = []
+            self.labels = []
+            self.label_map = {}
+
+            label_idx = 0
+            print("Loading dataset...")
+
+            # Process directory structure
+            print(f"Processing directory: {data_dir}")
+            for identity in tqdm(sorted(os.listdir(data_dir))):
+                identity_dir = os.path.join(data_dir, identity)
+                if not os.path.isdir(identity_dir):
+                    continue
+
+                # Get image files
+                import glob
+                image_files = glob.glob(os.path.join(identity_dir, "*.jpg"))
+                if len(image_files) < 5:  # Filter identities with < 5 images
+                    continue
+
+                # Assign label
+                if identity not in self.label_map:
+                    self.label_map[identity] = label_idx
+                    label_idx += 1
+
+                # Limit to 100 images per identity
+                for img_path in image_files[:100]:
+                    self.image_paths.append(img_path)
+                    self.labels.append(self.label_map[identity])
+
+            print(f"Loaded {len(self.image_paths)} images with {len(self.label_map)} identities")
+
+        def __len__(self):
+            return len(self.image_paths)
+
+        def __getitem__(self, idx):
+            img_path = self.image_paths[idx]
+            label = self.labels[idx]
+
+            try:
+                from PIL import Image
+                image = Image.open(img_path).convert('RGB')
+            except Exception as e:
+                print(f"Error opening {img_path}: {e}")
+                image = Image.new('RGB', (160, 160), color=(0, 0, 0))
+
+            if self.transform:
+                image = self.transform(image)
+
+            return image, label
+    
+    def process_casia_webface(dataset_dir, output_dir='/content/datasets/processed_casia'):
+        """Simple version that assumes dataset is already processed"""
+        # Check if the output directory exists and seems to have data
+        if os.path.exists(output_dir) and len(os.listdir(output_dir)) > 0:
+            print(f"✓ Using existing processed dataset at {output_dir}")
+            return output_dir
+            
+        # Check if dataset_dir itself is already in the right format
+        if os.path.exists(dataset_dir) and len(os.listdir(dataset_dir)) > 0:
+            # Check if it contains subdirectories (identities)
+            subdirs = [d for d in os.listdir(dataset_dir) if os.path.isdir(os.path.join(dataset_dir, d))]
+            if len(subdirs) > 0:
+                print(f"✓ Dataset directory appears to already be processed: {dataset_dir}")
+                return dataset_dir
+                
+        print("❌ Could not find processed dataset. Please run PreProcessing_dataset.py first.")
+        return None
+    
+    return FaceDataset, process_casia_webface
+
+def continue_training(model_path=MODEL_PATH, additional_epochs=ADDITIONAL_EPOCHS, lr=0.00003, dataset_path=DATASET_PATH):
     """
     Continue training a previously trained model for additional epochs.
     This picks up exactly where the previous training left off.
@@ -24,6 +145,7 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     - model_path: Path to the saved model checkpoint from previous training
     - additional_epochs: Number of additional epochs to train
     - lr: Learning rate for continued training (should be lower than initial training)
+    - dataset_path: Path to the processed dataset
     """
     print("-" * 80)
     print(f"CONTINUING TRAINING FROM EXISTING MODEL: {model_path}")
@@ -36,10 +158,47 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
         print("Please ensure you have trained a model first using train_model.py")
         return False
     
-    from PreProcessing_dataset import FaceDataset, process_casia_webface
+    # Import preprocessing module
+    try:
+        FaceDataset, process_casia_webface = import_preprocessing()
+    except Exception as e:
+        print(f"❌ Error importing preprocessing modules: {e}")
+        print("Please make sure PreProcessing_dataset.py has been executed first")
+        return False
+    
+    # Check if dataset path is valid or find an alternative
+    if not dataset_path or not os.path.exists(dataset_path):
+        # Let's look for processed dataset in common locations
+        dataset_locations = [
+            '/content/datasets/processed_casia',  # Default processed dataset path
+            '/content/datasets/casia-webface',    # Original dataset path
+            '/content/processed_casia',           # Alternative path
+        ]
+        
+        processed_path = None
+        for location in dataset_locations:
+            if os.path.exists(location):
+                processed_path = location
+                print(f"✓ Found dataset at: {processed_path}")
+                break
+        
+        if not processed_path:
+            print("❌ Could not find dataset. Please specify the correct path.")
+            data_path = input("Enter dataset path (or press Enter to exit): ")
+            if not data_path:
+                return False
+            processed_path = data_path
+    else:
+        processed_path = dataset_path
+        print(f"✓ Using dataset at: {processed_path}")
+    
+    # Output directory for saving models and results
+    output_dir = os.path.dirname(model_path)
+    if not output_dir:
+        output_dir = "/content/models"
     
     # Load previous training history if it exists
-    history_path = os.path.join(os.path.dirname(model_path), 'training_history.pkl')
+    history_path = os.path.join(output_dir, 'training_history.pkl')
     if os.path.exists(history_path):
         try:
             with open(history_path, 'rb') as f:
@@ -59,21 +218,12 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
         prev_train_accs, prev_val_accs = [], []
     
     # Settings for training
-    data_path = "/content/datasets/casia-webface"
-    output_dir = "/content/models"
     batch_size = 16  # Adjusted for GPU memory
     workers = 2  # Number of data loading workers
     
     # Make sure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
-    # Process dataset if needed
-    print("\n📦 Step 1: Checking dataset")
-    processed_path = process_casia_webface(data_path)
-    if not processed_path:
-        print("❌ Failed to process dataset. Exiting.")
-        return False
-
     # Data transforms
     print("\n🔄 Step 2: Setting up data transforms")
     data_transforms = transforms.Compose([
@@ -135,11 +285,12 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
         # Load EXACT weights from previous training (this is the critical part)
         print("✓ Loading weights from previous training run")
         model.load_state_dict(checkpoint['model_state_dict'])
-        
+
         # This confirms we're using the previously trained model, not the pretrained one
         print("✓ Successfully loaded previously trained model weights")
-        print(f"✓ Previous training reached epoch: {checkpoint.get('epoch', 'unknown')}")
-        
+        previous_epoch = checkpoint.get('epoch', 0)
+        print(f"✓ Previous training completed {previous_epoch} epoch(s) according to checkpoint")
+
         # Check if the model is in eval mode and set to train
         if not model.training:
             print("✓ Setting model to training mode")
@@ -187,12 +338,15 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
     train_accs, val_accs = [], []
 
     # Continue the training loop from previous epoch
-    start_epoch = checkpoint.get('epoch', 0) + 1
+    previous_epoch = checkpoint.get('epoch', 0)
+    start_epoch = previous_epoch + 1
     end_epoch = start_epoch + additional_epochs
-    print(f"\n🚀 Step 5: Continuing training from epoch {start_epoch} to {end_epoch-1}")
+    
+    print(f"\n🚀 Step 5: Previously trained up to epoch {previous_epoch}")
+    print(f"🚀 Continuing training for {additional_epochs} more epochs ({start_epoch} to {end_epoch-1})")
     
     for epoch in range(start_epoch, end_epoch):
-        print(f'\nEpoch {epoch} (Overall: {epoch})')
+        print(f'\nEpoch {epoch} (Additional: {epoch-start_epoch+1}/{additional_epochs})')
         
         # Training phase
         model.train()
@@ -336,17 +490,27 @@ def continue_training(model_path='/content/models/best_face_model.pth', addition
 
 # Make it easy to run directly in a Colab cell
 if __name__ == "__main__":
+    # Check if we need to install any missing dependencies
+    try:
+        import facenet_pytorch
+    except ImportError:
+        print("Installing required packages...")
+        import subprocess
+        subprocess.check_call(["pip", "install", "facenet-pytorch", "tqdm", "matplotlib", "Pillow"])
+    
     import argparse
     parser = argparse.ArgumentParser(description='Continue training a face recognition model')
-    parser.add_argument('--model', type=str, default='/content/models/best_face_model.pth',
+    parser.add_argument('--model', type=str, default=MODEL_PATH,
                         help='Path to the model checkpoint to continue training')
-    parser.add_argument('--epochs', type=int, default=5,
+    parser.add_argument('--epochs', type=int, default=ADDITIONAL_EPOCHS,
                         help='Number of additional epochs to train')
     parser.add_argument('--lr', type=float, default=0.00003,
                         help='Learning rate for continued training')
+    parser.add_argument('--dataset', type=str, default=DATASET_PATH,
+                        help='Path to the processed dataset')
     
     # Parse known args to handle Colab environment
     args, _ = parser.parse_known_args()
     
     # Call the function with the parsed arguments
-    continue_training(args.model, args.epochs, args.lr)
+    continue_training(args.model, args.epochs, args.lr, args.dataset)

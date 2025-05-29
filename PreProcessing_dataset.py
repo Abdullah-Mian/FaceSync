@@ -1,3 +1,6 @@
+# !pip install facenet-pytorch
+# !pip install mxnet
+# !pip install tqdm matplotlib
 # Import only what's needed for preprocessing
 import os
 import numpy as np
