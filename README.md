@@ -1,10 +1,50 @@
 # FaceSync: Deep Learning Face Recognition System
 
-FaceSync is a comprehensive face recognition system built with PyTorch that allows you to train your own face recognition model from scratch and use it for face verification and authentication. The system leverages deep learning techniques and provides both Google Colab and local execution environments.
+## 🔬 Technical Overview
 
-![FaceSync Logo](https://img.shields.io/badge/FaceSync-Face%20Recognition-blue)
-![PyTorch](https://img.shields.io/badge/PyTorch-1.9%2B-orange)
-![OpenCV](https://img.shields.io/badge/OpenCV-4.5%2B-green)
+FaceSync is built on cutting-edge deep learning technologies for robust face recognition:
+
+### Core Technologies & Libraries
+
+- **CNN Architecture**: The backbone of this project is the InceptionResnetV1 model, a sophisticated CNN architecture from the FaceNet framework. This CNN combines Inception modules with residual connections to create a powerful feature extraction network specifically optimized for facial recognition.
+- **Dataset Management**: Uses Kaggle API for downloading the CASIA-WebFace dataset and MXNet for extracting from RecordIO format.
+- **Image Processing**: OpenCV (cv2) and PIL handle image processing, transformation, and face alignment.
+- **Deep Learning Framework**: PyTorch powers the neural network training, with torchvision providing transformations for data augmentation.
+- **Face Detection**: MTCNN (Multi-task Cascaded Convolutional Networks) detects and aligns faces in images before recognition.
+- **Visualization & Processing**: Matplotlib for visualizing training metrics, tqdm for progress tracking, and NumPy for efficient array operations.
+
+### CNN Implementation Details
+
+The system leverages Convolutional Neural Networks (CNNs) at multiple stages:
+
+1. **Face Detection**: MTCNN uses cascaded CNNs with three stages (P-Net, R-Net, and O-Net) to detect facial landmarks and bounding boxes.
+2. **Feature Extraction**: InceptionResnetV1 applies multiple convolutional layers with different filter sizes in parallel (the Inception architecture) combined with residual connections to learn discriminative facial features.
+3. **Embedding Generation**: The CNN outputs a 512-dimensional embedding vector that encodes unique facial characteristics in a compact representation.
+
+### Training Methodology
+
+- **Data Split**: 80% training set, 20% validation set using controlled random splitting (torch.manual_seed(42))
+- **Loss Function**: CrossEntropyLoss for supervised classification during training
+- **Optimization**: Adam optimizer with learning rate scheduling (ReduceLROnPlateau)
+- **Performance Metrics**: Training/validation loss and accuracy, with model checkpoints saved for best validation accuracy
+- **Augmentation**: Random horizontal flips, rotations, and color jitter to improve model robustness
+
+### FaceNet Integration & Embedding Space
+
+FaceSync implements the FaceNet approach where:
+
+- The model maps face images to a Euclidean space where distances directly correspond to face similarity
+- While the original FaceNet paper uses triplet loss (minimizing distance between anchors and positive samples while maximizing distance to negative samples), this implementation uses classification during training and embedding comparison during inference
+- Face verification works by computing the cosine similarity between embeddings - registered faces create reference embeddings stored in face_embeddings.pkl
+- Authentication succeeds when similarity exceeds a threshold (0.6 by default)
+- The embedding database is a dictionary structure mapping person names to their embedding vectors, allowing efficient retrieval and comparison
+
+### Embedding Management
+
+- Embeddings for multiple identities are stored in a single pickle file as a Python dictionary
+- Each person's embedding is the average of multiple samples for robustness
+- During verification, the system computes the similarity between the current face's embedding and all stored embeddings
+- This approach allows for efficient scaling to many registered users without retraining the model
 
 ## 📋 System Overview
 
@@ -14,6 +54,10 @@ FaceSync leverages the following components:
 3. **Model Training**: Fine-tuning a deep neural network on your dataset
 4. **Training Extension**: Continuing training of existing models for better performance
 5. **Face Recognition**: Real-time face verification and authentication
+
+![FaceSync Logo](https://img.shields.io/badge/FaceSync-Face%20Recognition-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-1.9%2B-orange)
+![OpenCV](https://img.shields.io/badge/OpenCV-4.5%2B-green)
 
 ## 🔍 Requirements
 
