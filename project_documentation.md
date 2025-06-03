@@ -293,3 +293,14 @@ The recommended development roadmap would be:
 7. Enhance the system with advanced anti-spoofing as processing allows
 
 This strategic approach balances security needs, performance requirements, and hardware constraints while providing a scalable architecture for future enhancements.
+
+# Activation functions is accurate for the InceptionResnetV1 architecture used in FaceSync:
+## ReLU (Rectified Linear Unit)
+ is used as the activation function throughout most of the network's convolutional layers and residual blocks. ReLU is defined as f(x) = max(0, x), which means it outputs 0 for negative inputs and passes positive values unchanged. This helps with faster training and addresses the vanishing gradient problem.
+## Softmax
+ is used in the final classification layer during training. The softmax function converts the raw output logits into probability distributions across all identity classes. It's mathematically defined as softmax(z)i = e^zi / Σ(e^zj) for all j in classes.
+
+## This combination is standard in many modern CNN architectures:
+ReLU provides non-linearity throughout the network while being computationally efficient
+Softmax in the classification stage ensures the output can be interpreted as probabilities across all possible identities
+During inference for face verification (after training), the classification layer with softmax is typically removed, and the network uses the 512-dimensional embedding vector directly for similarity comparisons using cosine similarity.
